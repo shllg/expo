@@ -249,9 +249,10 @@ export class MetroBundlerDevServer extends BundlerDevServer {
 
   async getServerManifestAsync(): Promise<{
     serverManifest: ExpoRouterServerManifestV1;
+    htmlManifest: ExpoRouterRuntimeManifest;
   }> {
     // NOTE: This could probably be folded back into `renderStaticContent` when expo-asset and font support RSC.
-    const { getBuildTimeServerManifestAsync } = await this.ssrLoadModule<
+    const { getBuildTimeServerManifestAsync, getManifest } = await this.ssrLoadModule<
       typeof import('expo-router/build/static/getServerManifest')
     >('expo-router/build/static/getServerManifest.js', {
       // Only use react-server environment when the routes are using react-server rendering by default.
@@ -260,6 +261,7 @@ export class MetroBundlerDevServer extends BundlerDevServer {
 
     return {
       serverManifest: await getBuildTimeServerManifestAsync(),
+      htmlManifest: await getManifest(),
     };
   }
 
@@ -413,7 +415,11 @@ export class MetroBundlerDevServer extends BundlerDevServer {
   ) => {
     const res = await this.ssrLoadModuleContents(filePath, specificOptions);
 
-    if (extras.hot && this.instanceMetroOptions.isExporting !== true) {
+    if (
+      // TODO: hot should be a callback function for invalidating the related SSR module.
+      extras.hot &&
+      this.instanceMetroOptions.isExporting !== true
+    ) {
       // Register SSR HMR
       const serverRoot = getMetroServerRoot(this.projectRoot);
       const relativePath = path.relative(serverRoot, res.filename);
@@ -634,6 +640,20 @@ export class MetroBundlerDevServer extends BundlerDevServer {
     assets: readonly BundleAssetWithFileHashes[];
     files: ExportAssetMap;
   }> {
+    const getReactServerReferences = (artifacts: SerialAsset[]): string[] => {
+      // Get the React server action boundaries from the client bundle.
+      return unique(
+        artifacts
+          .filter((a) => a.type === 'js')
+          .map((artifact) =>
+            artifact.metadata.reactServerReferences?.map((ref) => fileURLToFilePath(ref))
+          )
+          // TODO: Segment by module for splitting.
+          .flat()
+          .filter(Boolean) as string[]
+      );
+    };
+
     // NOTE(EvanBacon): This will not support any code elimination since it's a static pass.
     let {
       reactClientReferences: clientBoundaries,
@@ -649,65 +669,69 @@ export class MetroBundlerDevServer extends BundlerDevServer {
 
     // TODO: The output keys should be in production format or use a lookup manifest.
 
-    debug('Evaluated client boundaries:', clientBoundaries);
+    const processClientBoundaries = async (
+      reactServerReferences: string[]
+    ): Promise<{
+      artifacts: SerialAsset[];
+      assets: readonly BundleAssetWithFileHashes[];
+    }> => {
+      debug('Evaluated client boundaries:', clientBoundaries);
 
-    // Run metro bundler and create the JS bundles/source maps.
-    let bundle = await this.legacySinglePageExportBundleAsync(
-      {
-        ...options,
-        clientBoundaries,
-      },
-      extraOptions
-    );
-
-    // Get the React server action boundaries from the client bundle.
-    const reactServerReferences = bundle.artifacts
-      .filter((a) => a.type === 'js')
-      .map((artifact) =>
-        artifact.metadata.reactServerReferences?.map((ref) => fileURLToFilePath(ref))
-      )
-      // TODO: Segment by module for splitting.
-      .flat()
-      .filter(Boolean) as string[];
-
-    if (!reactServerReferences) {
-      // Issue with babel plugin / metro-config.
-      throw new Error(
-        'Static server action references were not returned from the Metro client bundle'
-      );
-    }
-
-    debug('React server action boundaries from client:', reactServerReferences);
-
-    // When we export the server actions that were imported from the client, we may need to re-bundle the client with the new client boundaries.
-    const { clientBoundaries: nestedClientBoundaries } =
-      await this.rscRenderer!.exportServerActionsAsync(
-        {
-          platform: options.platform,
-          domRoot: options.domRoot,
-          entryPoints: [...serverActionReferencesInServer, ...reactServerReferences],
-        },
-        files
-      );
-
-    // TODO: Check against all modules in the initial client bundles.
-    const hasUniqueClientBoundaries = nestedClientBoundaries.some(
-      (boundary) => !clientBoundaries.includes(boundary)
-    );
-
-    if (hasUniqueClientBoundaries) {
-      debug('Re-bundling client with nested client boundaries:', nestedClientBoundaries);
-      clientBoundaries = [...new Set(clientBoundaries.concat(nestedClientBoundaries))];
-      // Re-bundle the client with the new client boundaries that only exist in server actions that were imported from the client.
       // Run metro bundler and create the JS bundles/source maps.
-      bundle = await this.legacySinglePageExportBundleAsync(
+      const bundle = await this.legacySinglePageExportBundleAsync(
         {
           ...options,
           clientBoundaries,
         },
         extraOptions
       );
-    }
+
+      // Get the React server action boundaries from the client bundle.
+      const newReactServerReferences = getReactServerReferences(bundle.artifacts);
+
+      if (!newReactServerReferences) {
+        // Possible issue with babel plugin / metro-config.
+        throw new Error(
+          'Static server action references were not returned from the Metro client bundle'
+        );
+      }
+      debug('React server action boundaries from client:', newReactServerReferences);
+
+      const allKnownReactServerReferences = unique([
+        ...reactServerReferences,
+        ...newReactServerReferences,
+      ]);
+
+      // When we export the server actions that were imported from the client, we may need to re-bundle the client with the new client boundaries.
+      const { clientBoundaries: nestedClientBoundaries } =
+        await this.rscRenderer!.exportServerActionsAsync(
+          {
+            platform: options.platform,
+            domRoot: options.domRoot,
+            entryPoints: allKnownReactServerReferences,
+          },
+          files
+        );
+
+      // TODO: Check against all modules in the initial client bundles.
+      const hasUniqueClientBoundaries = nestedClientBoundaries.some(
+        (boundary) => !clientBoundaries.includes(boundary)
+      );
+
+      if (!hasUniqueClientBoundaries) {
+        return bundle;
+      }
+
+      debug('Re-bundling client with nested client boundaries:', nestedClientBoundaries);
+
+      clientBoundaries = unique(clientBoundaries.concat(nestedClientBoundaries));
+
+      // Re-bundle the client with the new client boundaries that only exist in server actions that were imported from the client.
+      // Run metro bundler and create the JS bundles/source maps.
+      return processClientBoundaries(allKnownReactServerReferences);
+    };
+
+    const bundle = await processClientBoundaries(serverActionReferencesInServer);
 
     // Inject the global CSS that was imported during the server render.
     bundle.artifacts.push(...cssModules);
@@ -875,9 +899,18 @@ export class MetroBundlerDevServer extends BundlerDevServer {
     const appDir = path.join(this.projectRoot, routerRoot);
     const mode = options.mode ?? 'development';
 
-    if (isReactServerComponentsEnabled && useServerRendering) {
+    if (isReactServerComponentsEnabled && exp.web?.output === 'static') {
       throw new CommandError(
-        `Experimental server component support does not support 'web.output: ${exp.web!.output}' yet. Use 'web.output: "single"' during the experimental phase.`
+        `Experimental server component support does not support 'web.output: ${exp.web!.output}' yet. Use 'web.output: "server"' during the experimental phase.`
+      );
+    }
+
+    // Error early about the window.location polyfill when React Server Components are enabled.
+    if (isReactServerComponentsEnabled && exp?.extra?.router?.origin === false) {
+      const configPath = config.dynamicConfigPath ?? config.staticConfigPath ?? '/app.json';
+      const configFileName = path.basename(configPath);
+      throw new CommandError(
+        `The Expo Router "origin" property in the Expo config (${configFileName}) cannot be "false" when React Server Components is enabled. Remove it from the ${configFileName} file and try again.`
       );
     }
 
@@ -1023,7 +1056,7 @@ export class MetroBundlerDevServer extends BundlerDevServer {
 
       // Append support for redirecting unhandled requests to the index.html page on web.
       if (this.isTargetingWeb()) {
-        if (!useServerRendering || isReactServerComponentsEnabled) {
+        if (!useServerRendering) {
           // This MUST run last since it's the fallback.
           middleware.use(
             new HistoryFallbackMiddleware(manifestMiddleware.getHandler().internal).getHandler()
@@ -1037,7 +1070,16 @@ export class MetroBundlerDevServer extends BundlerDevServer {
               ...config.exp.extra?.router,
               bundleApiRoute: (functionFilePath) =>
                 this.ssrImportApiRoute(functionFilePath, { platform: 'web' }),
-              getStaticPageAsync: (pathname) => {
+              getStaticPageAsync: async (pathname) => {
+                // TODO: Add server rendering when RSC is enabled.
+                if (isReactServerComponentsEnabled) {
+                  // NOTE: This is a temporary hack to return the SPA/template index.html in development when RSC is enabled.
+                  // While this technically works, it doesn't provide the correct experience of server rendering the React code to HTML first.
+                  const html = await manifestMiddleware.getSingleHtmlTemplateAsync();
+                  return { content: html };
+                }
+
+                // Non-RSC apps will bundle the static HTML for a given pathname and respond with it.
                 return this.getStaticPageAsync(pathname);
               },
             })
@@ -1091,9 +1133,9 @@ export class MetroBundlerDevServer extends BundlerDevServer {
     };
   }
 
-  private onReloadRscEvent: (() => void) | null = null;
+  private onReloadRscEvent: ((platform: string) => void) | null = null;
 
-  private async registerSsrHmrAsync(url: string, onReload: () => void) {
+  private async registerSsrHmrAsync(url: string, onReload: (platform: string[]) => void) {
     if (!this.hmrServer || this.ssrHmrClients.has(url)) {
       return;
     }
@@ -1136,9 +1178,26 @@ export class MetroBundlerDevServer extends BundlerDevServer {
             // NOTE: We throw away the updates and instead simply send a trigger to the client to re-fetch the server route.
             if (!isInitialUpdate && hasUpdate) {
               // Clear all SSR modules before sending the reload event. This ensures that the next event will rebuild the in-memory state from scratch.
-              // if (typeof globalThis.__c === 'function') globalThis.__c();
+              // @ts-expect-error
+              if (typeof globalThis.__c === 'function') globalThis.__c();
 
-              onReload();
+              const allModuleIds = new Set(
+                [...added, ...modified].map((m) => m.module[0]).concat(deleted)
+              );
+
+              const platforms = unique(
+                Array.from(allModuleIds)
+                  .map((moduleId) => {
+                    if (typeof moduleId !== 'string') {
+                      return null;
+                    }
+                    // Extract platforms from the module IDs.
+                    return moduleId.match(/[?&]platform=([\w]+)/)?.[1] ?? null;
+                  })
+                  .filter(Boolean)
+              ) as string[];
+
+              onReload(platforms);
             }
           }
           break;
@@ -1341,17 +1400,23 @@ export class MetroBundlerDevServer extends BundlerDevServer {
   // Metro HMR
 
   private setupHmr(url: URL) {
-    const onReload = () => {
+    const onReload = (platforms: string[] = []) => {
       // Send reload command to client from Fast Refresh code.
-      debug('[SSR]: Reload requested.');
 
-      this.onReloadRscEvent?.();
-
-      this.broadcastMessage('sendDevCommand', {
-        name: 'rsc-reload',
-        // TODO: Target only certain platforms
-        // platform,
-      });
+      if (!platforms.length) {
+        // TODO: When is this called?
+        this.broadcastMessage('sendDevCommand', {
+          name: 'rsc-reload',
+        });
+      } else {
+        for (const platform of platforms) {
+          this.onReloadRscEvent?.(platform);
+          this.broadcastMessage('sendDevCommand', {
+            name: 'rsc-reload',
+            platform,
+          });
+        }
+      }
     };
 
     this.registerSsrHmrAsync(url.toString(), onReload);
@@ -1706,4 +1771,8 @@ async function sourceMapStringAsync(
   return (await sourceMapGeneratorNonBlocking(modules, options)).toString(undefined, {
     excludeSource: options.excludeSource,
   });
+}
+
+function unique<T>(array: T[]): T[] {
+  return Array.from(new Set(array));
 }
