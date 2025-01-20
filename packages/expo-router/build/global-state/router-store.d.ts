@@ -38,7 +38,7 @@ export declare class RouterStore {
     setParams: any;
     navigate: any;
     reload: any;
-    initialize(context: RequireContext, navigationRef: NavigationContainerRefWithCurrent<ReactNavigation.RootParamList>, linkingConfigOptions?: LinkingConfigOptions): void;
+    initialize(context: RequireContext, navigationRef: NavigationContainerRefWithCurrent<ReactNavigation.RootParamList>, linkingConfigOptions?: LinkingConfigOptions): Promise<void>;
     updateState(state: ResultState, nextState?: any): void;
     getRouteInfo(state: ResultState): UrlObject;
     shouldShowTutorial(): boolean;
@@ -79,6 +79,6 @@ export declare const store: RouterStore;
 export declare function useExpoRouter(): RouterStore;
 export declare function useStoreRootState(): any;
 export declare function useStoreRouteInfo(): UrlObject;
-export declare function useInitializeExpoRouter(context: RequireContext, options: LinkingConfigOptions): RouterStore;
+export declare function useInitializeExpoRouter(context: RequireContext, options: LinkingConfigOptions): [boolean, RouterStore];
 export {};
 //# sourceMappingURL=router-store.d.ts.map

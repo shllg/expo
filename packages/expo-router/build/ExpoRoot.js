@@ -103,7 +103,9 @@ function ContextNavigator({ context, location: initialLocation = initialUrl, wra
     const serverUrl = serverContext.location
         ? `${serverContext.location.pathname}${serverContext.location.search}`
         : undefined;
-    const store = (0, router_store_1.useInitializeExpoRouter)(context, {
+    // Load the router store and initialize it with the context, navigation ref and options.
+    // The store is instantiated in the global scope and might not be initialized yet.
+    const [storeInitialized, store] = (0, router_store_1.useInitializeExpoRouter)(context, {
         ...linking,
         serverUrl,
     });
@@ -122,7 +124,8 @@ function ContextNavigator({ context, location: initialLocation = initialUrl, wra
         }
     }
     const Component = store.rootComponent;
-    return (<NavigationContainer_1.NavigationContainer ref={store.navigationRef} initialState={store.initialState} linking={store.linking} onUnhandledAction={onUnhandledAction} documentTitle={{
+    // Render the navigation container once the store is initialized.
+    return storeInitialized ? (<NavigationContainer_1.NavigationContainer ref={store.navigationRef} initialState={store.initialState} linking={store.linking} onUnhandledAction={onUnhandledAction} documentTitle={{
             enabled: false,
         }}>
       <serverLocationContext_1.ServerContext.Provider value={serverContext}>
@@ -130,7 +133,7 @@ function ContextNavigator({ context, location: initialLocation = initialUrl, wra
           <Component />
         </WrapperComponent>
       </serverLocationContext_1.ServerContext.Provider>
-    </NavigationContainer_1.NavigationContainer>);
+    </NavigationContainer_1.NavigationContainer>) : null;
 }
 let onUnhandledAction;
 if (process.env.NODE_ENV !== 'production') {

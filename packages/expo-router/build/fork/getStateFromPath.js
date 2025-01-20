@@ -49,14 +49,23 @@ const expo = __importStar(require("./getStateFromPath-forks"));
  *   }
  * )
  * ```
+ * @param this RouterStore instance
+ * @param nativeIntent NativeIntent file import which can contain a redirectSystemPath function
  * @param path Path string to parse and convert, e.g. /foo/bar?count=42.
  * @param options Extra options to fine-tune how to parse the path.
  */
-function getStateFromPath(
+function getStateFromPath(nativeIntent, 
 // END FORK
 path, options) {
     const { initialRoutes, configs, configWithRegexes } = getConfigResources(options, this?.routeInfo?.segments);
     const screens = options?.screens;
+    // START FORK
+    // In case the nativeIntent contains a redirectSystemPath function, we use
+    // it handle the path before we start parsing it
+    if (nativeIntent && typeof nativeIntent.redirectSystemPath === 'function') {
+        path = nativeIntent.redirectSystemPath({ path, initial: false });
+    }
+    // END FORK
     // START FORK
     const expoPath = expo.getUrlWithReactNavigationConcessions(path);
     // END FORK

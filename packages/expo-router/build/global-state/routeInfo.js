@@ -25,7 +25,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.reconstructState = void 0;
 const queryString = __importStar(require("query-string"));
-function reconstructState(state, getState, options) {
+function reconstructState(nativeIntent, state, getState, options) {
     const segments = [];
     const allParams = {};
     while (state?.routes?.length) {
@@ -51,7 +51,7 @@ function reconstructState(state, getState, options) {
     if (query) {
         path += `?${query}`;
     }
-    return getState(path, options);
+    return getState(nativeIntent, path, options);
 }
 exports.reconstructState = reconstructState;
 //# sourceMappingURL=routeInfo.js.map

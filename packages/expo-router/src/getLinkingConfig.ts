@@ -111,6 +111,14 @@ export async function getLinkingConfig(
     },
     // Add all functions to ensure the types never need to fallback.
     // This is a convenience for usage in the package.
-    getActionFromState,
+    getActionFromState(state, options) {
+      let action = getActionFromState(state, options);
+
+      if (nativeLinking?.getActionFromState) {
+        action = nativeLinking.getActionFromState(state, options, action);
+      }
+
+      return action;
+    },
   };
 }
