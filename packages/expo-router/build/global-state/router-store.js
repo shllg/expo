@@ -75,7 +75,7 @@ class RouterStore {
     setParams = routing_1.setParams.bind(this);
     navigate = routing_1.navigate.bind(this);
     reload = routing_1.reload.bind(this);
-    initialize(context, navigationRef, linkingConfigOptions = {}) {
+    async initialize(context, navigationRef, linkingConfigOptions = {}) {
         // Clean up any previous state
         this.initialState = undefined;
         this.rootState = undefined;
@@ -101,7 +101,7 @@ class RouterStore {
         };
         if (this.routeNode) {
             // We have routes, so get the linking config and the root component
-            this.linking = (0, getLinkingConfig_1.getLinkingConfig)(this, this.routeNode, context, linkingConfigOptions);
+            this.linking = await Promise.resolve((0, getLinkingConfig_1.getLinkingConfig)(this, this.routeNode, context, linkingConfigOptions));
             this.rootComponent = (0, useScreens_1.getQualifiedRouteComponent)(this.routeNode);
             // By default React Navigation is async and does not render anything in the first pass as it waits for `getInitialURL`
             // This will cause static rendering to fail, which once performs a single pass.
@@ -242,9 +242,18 @@ function useStoreRouteInfo() {
 exports.useStoreRouteInfo = useStoreRouteInfo;
 function useInitializeExpoRouter(context, options) {
     const navigationRef = (0, native_1.useNavigationContainerRef)();
-    (0, react_1.useMemo)(() => exports.store.initialize(context, navigationRef, options), [context]);
+    const [initialized, setInitialized] = (0, react_1.useState)(false);
+    (0, react_1.useMemo)(() => {
+        async function initialize() {
+            await exports.store.initialize(context, navigationRef, options);
+            setInitialized(true);
+        }
+        initialize();
+    }, [context]);
     useExpoRouter();
-    return exports.store;
+    // Although the store is instantiated in the global scope, it might not
+    // be initialized yet. For further handling, we pass down that information.
+    return [initialized, exports.store];
 }
 exports.useInitializeExpoRouter = useInitializeExpoRouter;
 //# sourceMappingURL=router-store.js.map
