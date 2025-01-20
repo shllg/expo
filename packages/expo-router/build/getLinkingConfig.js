@@ -17,17 +17,26 @@ function getNavigationConfig(routes, metaOnly = true) {
     };
 }
 exports.getNavigationConfig = getNavigationConfig;
-function getLinkingConfig(store, routes, context, { metaOnly = true, serverUrl, redirects } = {}) {
+async function getLinkingConfig(store, routes, context, { metaOnly = true, serverUrl, redirects } = {}) {
     // Returning `undefined` / `null from `getInitialURL` are valid values, so we need to track if it's been called.
     let hasCachedInitialUrl = false;
     let initialUrl;
+    const config = getNavigationConfig(routes, metaOnly);
     const nativeLinkingKey = context
         .keys()
         .find((key) => key.match(/^\.\/\+native-intent\.[tj]sx?$/));
-    const nativeLinking = nativeLinkingKey
+    // The native linking module is optional and can be imported from the native intent file.
+    // It also might be a promise depending on the metro bundler/expo config.
+    const nativeLinkingModule = nativeLinkingKey
         ? context(nativeLinkingKey)
         : undefined;
-    const config = getNavigationConfig(routes, metaOnly);
+    // If the nativeLinkingModule is a promise, we need to await it
+    const nativeLinking = nativeLinkingModule &&
+        'then' in nativeLinkingModule &&
+        typeof nativeLinkingModule.then === 'function'
+        ? await nativeLinkingModule
+        : nativeLinkingModule;
+    // Create bound getStateFromPath
     const boundGetStateFromPath = linking_1.getStateFromPath.bind(store);
     return {
         prefixes: [],
@@ -67,7 +76,11 @@ function getLinkingConfig(store, routes, context, { metaOnly = true, serverUrl, 
             return initialUrl;
         },
         subscribe: (0, linking_1.addEventListener)(nativeLinking, store),
-        getStateFromPath: boundGetStateFromPath,
+        getStateFromPath(path, options) {
+            // In order to utilize the native intent file, the native linking
+            // is passed to the extended getStateFromPath function.
+            return boundGetStateFromPath(nativeLinking, path, options);
+        },
         getPathFromState(state, options) {
             return ((0, linking_1.getPathFromState)(state, {
                 ...config,
@@ -77,7 +90,13 @@ function getLinkingConfig(store, routes, context, { metaOnly = true, serverUrl, 
         },
         // Add all functions to ensure the types never need to fallback.
         // This is a convenience for usage in the package.
-        getActionFromState: native_1.getActionFromState,
+        getActionFromState(state, options) {
+            let action = (0, native_1.getActionFromState)(state, options);
+            if (nativeLinking?.getActionFromState) {
+                action = nativeLinking.getActionFromState(state, options, action);
+            }
+            return action;
+        },
     };
 }
 exports.getLinkingConfig = getLinkingConfig;

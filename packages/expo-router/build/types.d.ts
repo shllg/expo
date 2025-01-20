@@ -1,3 +1,4 @@
+import { getActionFromState } from '@react-navigation/core';
 /**
  * @hidden
  */
@@ -41,7 +42,7 @@ export type NativeIntent = {
     redirectSystemPath?: (event: {
         path: string;
         initial: boolean;
-    }) => Promise<string> | string;
+    }) => string;
     /**
      * > **warning** Experimentally available in SDK 52.
      *
@@ -54,6 +55,12 @@ export type NativeIntent = {
      *
      */
     legacy_subscribe?: (listener: (url: string) => void) => undefined | void | (() => void);
+    /**
+     * Optional override for the `getActionFromState` function. It additonally
+     * gets the previously calculated action. You can either modify and
+     * return the action or return a new action.
+     */
+    getActionFromState?: (state: Parameters<typeof getActionFromState>[0], options: Parameters<typeof getActionFromState>[1], action: ReturnType<typeof getActionFromState>) => ReturnType<typeof getActionFromState>;
 };
 export type * from './typed-routes/types';
 //# sourceMappingURL=types.d.ts.map

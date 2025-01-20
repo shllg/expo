@@ -1,8 +1,9 @@
 import { LinkingOptions } from '@react-navigation/native';
 import { RouteNode } from './Route';
+import { ResultState, type Options } from './fork/getStateFromPath';
 import { type RedirectConfig } from './getRoutesCore';
 import { RouterStore } from './global-state/router-store';
-import { getInitialURL, getPathFromState, getStateFromPath } from './link/linking';
+import { getInitialURL, getPathFromState } from './link/linking';
 import { RequireContext } from './types';
 export declare const INTERNAL_SLOT_NAME = "__root";
 export declare function getNavigationConfig(routes: RouteNode, metaOnly?: boolean): {
@@ -16,7 +17,7 @@ export declare function getNavigationConfig(routes: RouteNode, metaOnly?: boolea
 };
 export type ExpoLinkingOptions<T extends object = Record<string, unknown>> = LinkingOptions<T> & {
     getPathFromState?: typeof getPathFromState;
-    getStateFromPath?: typeof getStateFromPath;
+    getStateFromPath?: (path: string, config?: Options<object>) => ResultState | undefined;
 };
 export type LinkingConfigOptions = {
     metaOnly?: boolean;
@@ -24,5 +25,5 @@ export type LinkingConfigOptions = {
     getInitialURL?: typeof getInitialURL;
     redirects?: RedirectConfig[];
 };
-export declare function getLinkingConfig(store: RouterStore, routes: RouteNode, context: RequireContext, { metaOnly, serverUrl, redirects }?: LinkingConfigOptions): ExpoLinkingOptions;
+export declare function getLinkingConfig(store: RouterStore, routes: RouteNode, context: RequireContext, { metaOnly, serverUrl, redirects }?: LinkingConfigOptions): Promise<ExpoLinkingOptions>;
 //# sourceMappingURL=getLinkingConfig.d.ts.map
