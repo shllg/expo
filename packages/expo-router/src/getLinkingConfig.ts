@@ -11,7 +11,7 @@ import {
   addEventListener,
   getInitialURL,
   getPathFromState,
-  getStateFromPath,
+  getStateFromPath as _getStateFromPath,
 } from './link/linking';
 import { NativeIntent, RequireContext } from './types';
 
@@ -70,7 +70,7 @@ export async function getLinkingConfig(
       : (nativeLinkingModule as NativeIntent);
 
   // Create bound getStateFromPath
-  const boundGetStateFromPath = getStateFromPath.bind(store);
+  const boundGetStateFromPath = _getStateFromPath.bind(store);
 
   return {
     prefixes: [],
